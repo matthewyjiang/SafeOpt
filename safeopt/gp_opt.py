@@ -480,7 +480,7 @@ class SafeOpt(GaussianProcessOptimization):
         # Update safe set
         self.S[:] = np.all(self.Q[:, ::2] > self.fmin, axis=1)
 
-    def compute_sets(self, full_sets=False):
+    def compute_sets(self, full_sets=False, num_expanders=10, goal=None):
         """
         Compute the safe set of points, based on current confidence bounds.
 
@@ -546,13 +546,20 @@ class SafeOpt(GaussianProcessOptimization):
         # set of safe expanders
         G_safe = np.zeros(np.count_nonzero(s), dtype=np.bool)
 
-        if not full_sets:
-            # Sort, element with largest variance first
-            sort_index = sort_generator(np.max(u[s, :] - l[s, :],
+        if goal is None:
+            if not full_sets:
+                # Sort, element with largest variance first
+                sort_index = sort_generator(np.max(u[s, :] - l[s, :],
                                                axis=1))
+            else:
+                # Sort index is just an enumeration of all safe states
+                sort_index = range(len(G_safe))
         else:
-            # Sort index is just an enumeration of all safe states
-            sort_index = range(len(G_safe))
+            # sort elements by distance to the goal (smallest first)
+            sort_index = sort_generator(-np.linalg.norm(
+                self.inputs[s, :] - goal, axis=1))
+
+        count = 0
 
         for index in sort_index:
             if self.use_lipschitz:
@@ -609,7 +616,10 @@ class SafeOpt(GaussianProcessOptimization):
             # uncertain element gets picked by SafeOpt anyways, we can
             # stop after we found the first one
             if G_safe[index] and not full_sets:
-                break
+                count += 1
+            
+                if count >= num_expanders:
+                    break
 
         # Update safe set (if full_sets is False this is at most one point
         self.G[s] = G_safe
@@ -670,7 +680,7 @@ class SafeOpt(GaussianProcessOptimization):
         if ucb:
             self.compute_safe_set()
         else:
-            self.compute_sets()
+            self.compute_sets(full_sets=True)
 
         return self.get_new_query_point(ucb=ucb)
 
